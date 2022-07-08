@@ -5,13 +5,7 @@
 #include "soc/rtc_cntl_reg.h"
 #include "Base64.h"
 #include <SPIFFS.h>
-#include "time.h"
-#include "esp_timer.h"
-#include "img_converters.h"
-#include "esp_http_server.h"
-#include "Arduino.h"
-#include "fb_gfx.h"
-//escrever uma flag que vai dizer se devo importar as libs do wifi manager
+
 #include "esp_camera.h"
 
 #define TRIGGER_PIN 13
@@ -35,20 +29,14 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-#define PART_BOUNDARY "123456789000000000000987654321"
 
-//static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-//static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-//static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
-//
-//httpd_handle_t stream_httpd = NULL;
 
 bool wm_nonblocking = false; // change to true to use non blocking
 
 struct tm timeinfo;
 camera_config_t config;
 WiFiManager wm; // global wm instance
-WiFiManagerParameter custom_photo_field, custom_ssid_field, custom_pass_field, custom_key_field, custom_btn_field; // global param ( for non blocking w params )
+WiFiManagerParameter custom_photo_field, custom_ssid_field, custom_pass_field, custom_key_field; // global param ( for non blocking w params )
 
 const char* myDomain = "script.google.com";
 String myFilename = "filename=ESP32-CAM.jpg";
@@ -56,11 +44,13 @@ String mimeType = "&mimetype=image/jpeg";
 String myImage = "&data=";
 int waitingTime = 30000; //Wait 30 seconds to google response.
 
+String configFlag = "1" // True = 1 and False = 0
 String photosCap = "1";
 String apSSID = "Quickium";
 String apPassword = "quickium123";
 String setupKey;
 
+char flag[4];
 char photo[4];
 char ssid[30];
 char pass[30];
@@ -74,82 +64,6 @@ unsigned long interval, adjustInterval, lastPhoto, firstPhoto;
 
 bool photoFlag = true;
 
-
-//static esp_err_t stream_handler(httpd_req_t *req){
-//  camera_fb_t * fb = NULL;
-//  esp_err_t res = ESP_OK;
-//  size_t _jpg_buf_len = 0;
-//  uint8_t * _jpg_buf = NULL;
-//  char * part_buf[64];
-//
-//  res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-//  if(res != ESP_OK){
-//    return res;
-//  }
-//
-//  while(true){
-//    fb = esp_camera_fb_get();
-//    if (!fb) {
-//      Serial.println("Camera capture failed");
-//      res = ESP_FAIL;
-//    } else {
-//      if(fb->width > 400){
-//        if(fb->format != PIXFORMAT_JPEG){
-//          bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-//          esp_camera_fb_return(fb);
-//          fb = NULL;
-//          if(!jpeg_converted){
-//            Serial.println("JPEG compression failed");
-//            res = ESP_FAIL;
-//          }
-//        } else {
-//          _jpg_buf_len = fb->len;
-//          _jpg_buf = fb->buf;
-//        }
-//      }
-//    }
-//    if(res == ESP_OK){
-//      size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
-//      res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-//    }
-//    if(res == ESP_OK){
-//      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-//    }
-//    if(res == ESP_OK){
-//      res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-//    }
-//    if(fb){
-//      esp_camera_fb_return(fb);
-//      fb = NULL;
-//      _jpg_buf = NULL;
-//    } else if(_jpg_buf){
-//      free(_jpg_buf);
-//      _jpg_buf = NULL;
-//    }
-//    if(res != ESP_OK){
-//      break;
-//    }
-//    //Serial.printf("MJPG: %uB\n",(uint32_t)(_jpg_buf_len));
-//  }
-//  return res;
-//}
-
-//void startCameraServer(){
-//  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-//  config.server_port = 80;
-//
-//  httpd_uri_t index_uri = {
-//    .uri       = "/",
-//    .method    = HTTP_GET,
-//    .handler   = stream_handler,
-//    .user_ctx  = NULL
-//  };
-//  
-//  //Serial.printf("Starting web server on port: '%d'\n", config.server_port);
-//  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
-//    httpd_register_uri_handler(stream_httpd, &index_uri);
-//  }
-//}
 
 void setup() {
   
@@ -173,6 +87,17 @@ void setup() {
   //SPIFFS.format();    //just used to development (clean spiffs memory)
   
   Serial.println("Mounted SPIFFS file system");
+
+  if (SPIFFS.exists("/config_flag.txt")) {
+    configFlag = readFile(SPIFFS, "/config_flag.txt");
+    //importar ou não e passar as variáveis
+  }
+  else{
+    configFlag.toCharArray(flag,4);
+    writeFile(SPIFFS, "/config.txt", flag);
+    Serial.println("Saved number photos to capture: " + photosCap); 
+  }
+  
 
   if (SPIFFS.exists("/photos.txt")) {
     photosCap = readFile(SPIFFS, "/photos.txt");
@@ -235,15 +160,12 @@ void setup() {
   const char* custom_key = html_key.c_str();
   new (&custom_key_field) WiFiManagerParameter(custom_key); // custom html input
 
-  String html_btn_camera ="<button onclick=location.href = '192.168.4.11'; id='myButton'>Home</button>";
-  const char* custom_btn_camera = html_btn_camera.c_str();
-  new (&custom_btn_field) WiFiManagerParameter(custom_btn_camera); // custom html input
   
   wm.addParameter(&custom_photo_field);
   wm.addParameter(&custom_ssid_field);
   wm.addParameter(&custom_pass_field);
   wm.addParameter(&custom_key_field);
-  wm.addParameter(&custom_btn_field);
+
   
   wm.setSaveParamsCallback(saveParamCallback);
 
@@ -336,7 +258,6 @@ void setup() {
     ESP.restart();
   }
 
-//  startCameraServer();
 
 //  digitalWrite(AP_LED, LOW);
 }
