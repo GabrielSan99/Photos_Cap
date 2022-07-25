@@ -19,7 +19,7 @@
 #define FILE_PHOTO "/photo.jpg"
 
 #define TRIGGER_PIN 13
-#define AP_LED 14
+#define DEBUG_LED 14
 #define FLASH_LED 4
 
 #define PWDN_GPIO_NUM     32
@@ -41,11 +41,12 @@
 #define PCLK_GPIO_NUM     22
 
 bool wm_nonblocking = false; // change to true to use non blocking
+hw_timer_t *timer = NULL;
 
 struct tm timeinfo;
 camera_config_t config;
 WiFiManager wm; // global wm instance
-WiFiManagerParameter custom_photo_field, custom_ssid_field, custom_pass_field, custom_key_field; // global param ( for non blocking w params )
+WiFiManagerParameter custom_photo_field, custom_ssid_field, custom_pass_field, custom_key_field, custom_flash_field; // global param ( for non blocking w params )
 
 int waitingTime = 30000; //Wait 30 seconds to google response.
 const char* myDomain = "script.google.com";
@@ -54,8 +55,8 @@ String mimeType = "&mimetype=image/jpeg";
 String myImage = "&data=";
 
 
-String configFlag = "1";    // 1 == True and 0 == False
-String flashFlag = "0";
+String configFlag = "1";    // 1 == turn on wifimanager; 2-5 == trying to connect wifi
+String flashFlag = "0";     // 1 == True and 0 == False
  
 String photosCap = "1";
 String apSSID = "Quickium";
@@ -71,24 +72,17 @@ char ssid[30];
 char pass[30];
 char key [250];
 
-
+//<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -3600*3;
 const int daylightOffset_sec = 0;
 
-<<<<<<< HEAD
-unsigned long interval, adjustInterval, lastPhoto, firstPhoto;
-=======
-unsigned long interval, adjustInterval, lastPhoto, firstPhoto, blinkTime;
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
-
+unsigned long interval, adjustInterval, lastPhoto, firstPhoto, blinkTime, _time;
 
 bool photoFlag = true;
 bool takeNewPhoto = false;
-<<<<<<< HEAD
-=======
 bool _blink = true;
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
+bool startTest = false;
 
 AsyncWebServer server(80);
 
@@ -96,24 +90,38 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" /> 
   <style>
-    body { text-align:center; }
-    .vert { margin-bottom: 10%; }
-    .hori{ margin-bottom: 0%; }
+
+    *{margin-left:0px; margin-right: 0px;}
+
+     body{text-align: center; background-color:#e6e6e6}
+
+    .header{height: 15%; background-color: #3e5a98; display: flex; justify-content: center; align-items: center; margin-top:-2%}
+
+    .button{border-radius: 4px; background-color: #3e5a98; color:white; font-size: 15px; font-weight: bolder}
+    
+    .photo{margin-left: 10%; width:80%; position: relative; top:25%}
+    
   </style>
 </head>
 <body>
-  <div id="container">
-    <h2>ESP32-CAM Last Photo</h2>
-    <p>It might take more than 5 seconds to capture a photo.</p>
+  <div class="header">
+    <h1 style="font-size:40px; color: white; font: bolder" >QUICKIUM CAM</h1>
+  </div><br>
+  <div>
+    <p style="font-weight:bolder" >Wait 5 seconds to click refresh button!</p>
     <p>
-      <button onclick="rotatePhoto();">ROTATE</button>
-      <button onclick="capturePhoto()">CAPTURE PHOTO</button>
-      <button onclick="location.reload();">REFRESH PAGE</button>
+      <button class="button" onclick="capturePhoto()">CAPTURE PHOTO</button>
+      <button class="button" onclick="location.reload();">REFRESH PAGE</button>
     </p>
   </div>
-  <div><img src="saved-photo" id="photo" width="50%"></div>
+  <br>
+  <div class="photo">
+    <img src="saved-photo" id="photo" width="100%">
+  </div>
 </body>
+
 <script>
   var deg = 0;
   function capturePhoto() {
@@ -121,25 +129,27 @@ const char index_html[] PROGMEM = R"rawliteral(
     xhr.open('GET', "/capture", true);
     xhr.send();
   }
-  function rotatePhoto() {
-    var img = document.getElementById("photo");
-    deg += 90;
-    if(isOdd(deg/90)){ document.getElementById("container").className = "vert"; }
-    else{ document.getElementById("container").className = "hori"; }
-    img.style.transform = "rotate(" + deg + "deg)";
-  }
-  function isOdd(n) { return Math.abs(n % 2) == 1; }
 </script>
 </html>)rawliteral";
 
+void IRAM_ATTR resetModule(){
+    ets_printf("(watchdog) reiniciar\n"); //imprime no log
+    ESP.restart(); //reinicia o chip
+}
+
 void setup() {
-  
+  s
+  timer = timerBegin(0, 160, true);                   //160MHz de clock
+  timerAttachInterrupt(timer, &resetModule, true);    //função de callback do alarme
+  timerAlarmWrite(timer, 120000000, true);             //120 segundos de timer
+  timerAlarmEnable(timer);                            //habilita a interrupção
+   
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   pinMode(TRIGGER_PIN, INPUT);
-  pinMode(AP_LED, OUTPUT);
+  pinMode(DEBUG_LED, OUTPUT);
   pinMode(FLASH_LED, OUTPUT);
   
-  digitalWrite(AP_LED, LOW);
+  digitalWrite(DEBUG_LED, LOW);
   digitalWrite(FLASH_LED, LOW);
   
 
@@ -155,6 +165,8 @@ void setup() {
      return;
   }
 
+  checkButton();
+
   //SPIFFS.format();    //just used to development (clean spiffs memory)
   
   Serial.println("Mounted SPIFFS file system");
@@ -168,8 +180,17 @@ void setup() {
     writeFile(SPIFFS, "/config_flag.txt", c_flag);
     Serial.println("Config Flag is set as: " + String(c_flag)); 
   }
-  
 
+  if (SPIFFS.exists("/flash_flag.txt")) {
+    flashFlag = readFile(SPIFFS, "/flash_flag.txt");
+    Serial.println("Flash Flag is set as: " + flashFlag); 
+  }
+  else{
+    flashFlag.toCharArray(f_flag,4);
+    writeFile(SPIFFS, "/flash_flag.txt", f_flag);
+    Serial.println("Flash Flag is set as: " + String(f_flag)); 
+  }
+  
   if (SPIFFS.exists("/photos.txt")) {
     photosCap = readFile(SPIFFS, "/photos.txt");
     photosCap.toCharArray(photo, 4);
@@ -211,11 +232,11 @@ void setup() {
   
   delay(1000);
   
-  // wm.resetSettings(); // wipe settings
+  //wm.resetSettings(); // wipe settings
 
   if(wm_nonblocking) wm.setConfigPortalBlocking(false);
 
-  String html_photo = "<label for='photo'>Number photos to capture </label><input type='number' min='1' max='24' name='photo' value='" + photosCap + "'>";
+  String html_photo = "<h1 style='text-align:center'>SETUP PAGE</h1><br><label for='photo'>Number photos to capture </label><input type='number' min='1' max='24' name='photo' value='" + photosCap + "'>";
   const char* custom_photo_cap = html_photo.c_str();
   new (&custom_photo_field) WiFiManagerParameter(custom_photo_cap); // custom html input
 
@@ -223,7 +244,7 @@ void setup() {
   const char* custom_ap_ssid = html_ssid.c_str();
   new (&custom_ssid_field) WiFiManagerParameter(custom_ap_ssid); // custom html input
 
-  String html_pass = "<label for='pass'>AP password</label><input type='password' name='pass' value='" + apPassword + "'>";
+  String html_pass = "<label for='pass'>AP password</label><input type='password' name='pass' value='" + apPassword + "'><hr>";
   const char* custom_ap_pass = html_pass.c_str();
   new (&custom_pass_field) WiFiManagerParameter(custom_ap_pass); // custom html input
 
@@ -231,40 +252,42 @@ void setup() {
   const char* custom_key = html_key.c_str();
   new (&custom_key_field) WiFiManagerParameter(custom_key); // custom html input
 
-  //adicionar campo que determina se as fotos serão com flash ou sem
+  String html_flash ="<p>Choose flash state to your photos:</p><div style='display: flex; flex-direction:row; flex-wrap: wrap;width: 100%'><div style='display: flex;flex-direction: column;flex-basis: 100%; flex: 1; text-align: center'><input type='radio' id='on' name='flash' value='1'>ON</div><div style='display: flex;flex-direction: column;flex-basis: 100%; flex: 1; text-align: center'><input type='radio' id='off' name='flash' value='0'>OFF</div></div>";
+  const char* custom_flash = html_flash.c_str();
+  new (&custom_flash_field) WiFiManagerParameter(custom_flash); // custom html input
 
   
   wm.addParameter(&custom_photo_field);
   wm.addParameter(&custom_ssid_field);
   wm.addParameter(&custom_pass_field);
   wm.addParameter(&custom_key_field);
+  //wm.addParameter(&custom_flash_field);
+  
   wm.setSaveParamsCallback(saveParamCallback);
 
   std::vector<const char *> menu = {"wifi","info","param","sep","restart","exit"};
   wm.setMenu(menu);
   wm.setClass("invert");               // set dark theme
 
+  timerAlarmDisable(timer);
+  
   if (configFlag == "1"){
     Serial.println("Trying to up config page!!");
-    digitalWrite(AP_LED, HIGH);
+    digitalWrite(DEBUG_LED, HIGH);
     
     wm.setConfigPortalTimeout(120);     // auto close configportal after n seconds
     wm.startConfigPortal(ssid,pass);    // password protected ap
-<<<<<<< HEAD
-    
-    digitalWrite(AP_LED, LOW);
-    configFlag = "0";
-=======
     digitalWrite(DEBUG_LED, LOW);
+    delay(100);
     configFlag = "2";
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
     configFlag.toCharArray(c_flag,4);
-    writeFile(SPIFFS, "/config_flag.txt", c_flag); 
-    
+    writeFile(SPIFFS, "/config_flag.txt", c_flag);
+    delay(100); 
     ESP.restart();
   }
   
   else {
+
     Serial.println("Trying to connect wifi!!");
     wm.setConfigPortalTimeout(5);     // auto close configportal after n seconds
     bool res;
@@ -272,36 +295,40 @@ void setup() {
   
     if(!res) {
       Serial.println("Failed to connect or hit timeout");
-<<<<<<< HEAD
-=======
       int aux = configFlag.toInt();
       aux = aux + 1;
       if (aux > 5){
           configFlag = "1";
           configFlag.toCharArray(c_flag,4);
           writeFile(SPIFFS, "/config_flag.txt", c_flag); 
+          delay(100); 
+          ESP.restart();
       }
-      configFlag = String(aux);
-      configFlag.toCharArray(c_flag,4);
-      writeFile(SPIFFS, "/config_flag.txt", c_flag);
-      delay(100); 
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
-      ESP.restart();
+      else{
+        configFlag = String(aux);
+        configFlag.toCharArray(c_flag,4);
+        writeFile(SPIFFS, "/config_flag.txt", c_flag);
+        delay(100); 
+        ESP.restart();
+      }
     } 
     else {
       //if you get here you have connected to the WiFi    
       Serial.println("connected...yeey :)");
     }
+
   }
+
+  configFlag = "2";
+  configFlag.toCharArray(c_flag,4);
+  writeFile(SPIFFS, "/config_flag.txt", c_flag); 
   
   delay(2000);
-<<<<<<< HEAD
-  digitalWrite(AP_LED, LOW);
-=======
   digitalWrite(DEBUG_LED, LOW);
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
+  timerAlarmEnable(timer);
+  Serial.println("Start WatchDog");
 
-  ///////////////////////////Setup time to photos capture///////////////////////////
+  //////////////////////////////////////////////////Setup time to photos capture////////////////////////////////////////////////////////////
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   time_t now;
@@ -335,7 +362,7 @@ void setup() {
 
   delay(1000);
   
-  ////////////////////////Setup Camera//////////////////////////
+  /////////////////////////////////////////////////////////Setup Camera//////////////////////////////////////////////////////////////
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -357,7 +384,7 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size = FRAMESIZE_VGA;  // UXGA|SXGA|XGA|SVGA|VGA|CIF|QVGA|HQVGA|QQVGA
-  config.jpeg_quality = 10;
+  config.jpeg_quality = 4;            // default is 10
   config.fb_count = 1;
   
   esp_err_t err = esp_camera_init(&config);
@@ -367,7 +394,7 @@ void setup() {
     ESP.restart();
   }
 
-  /////////////////////Setup WebServer//////////////////////////
+  ////////////////////////////////////////////////////////Setup WebServer///////////////////////////////////////////////////////
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
     request->send_P(200, "text/html", index_html);
@@ -385,27 +412,28 @@ void setup() {
   // Start server
   server.begin();
 
+  blinkTime = millis();
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////FUNCTIONS///////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void checkButton(){
   // check for button press
   if ( digitalRead(TRIGGER_PIN) == LOW ) {
-    delay(3000);
+    delay(500);
     if( digitalRead(TRIGGER_PIN) == LOW ){
-      Serial.println("Start Config Page");
-      configFlag = "1";
-      configFlag.toCharArray(c_flag,4);
-<<<<<<< HEAD
-      writeFile(SPIFFS, "/config_flag.txt", c_flag);       
-=======
-      writeFile(SPIFFS, "/config_flag.txt", c_flag);
-      delay(100);       
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
-      ESP.restart();        
+      startTest = true;
+      delay(4500);
+      if( digitalRead(TRIGGER_PIN) == LOW ){
+        Serial.println("Start Config Page");
+        configFlag = "1";
+        configFlag.toCharArray(c_flag,4);
+        writeFile(SPIFFS, "/config_flag.txt", c_flag);
+        delay(100);       
+        ESP.restart();        
+      }
     }
   }
 }
@@ -427,6 +455,7 @@ void saveParamCallback(){
   apSSID = getParam("ssid");
   apPassword = getParam("pass");
   setupKey = getParam("key");
+  flashFlag = getParam("flash");
 
   Serial.println("Parameters fetched: ");
   Serial.println(photosCap);
@@ -460,6 +489,12 @@ void saveParamCallback(){
     setupKey.toCharArray(key,250);
     writeFile(SPIFFS, "/setup_key.txt", key);
     Serial.println("Saved new setup key: " + setupKey); 
+  }
+
+  if (flashFlag != ""){
+    flashFlag.toCharArray(f_flag,4);
+    writeFile(SPIFFS, "/flash_flag.txt", f_flag);
+    Serial.println("Saved flash state: " + flashFlag);  
   }
   
 }
@@ -521,6 +556,9 @@ void saveCapturedImage() {
   Serial.println("Connect to " + String(myDomain));
   WiFiClientSecure client;
   
+  if (flashFlag == "1"){
+    digitalWrite(FLASH_LED, HIGH);
+  }
   if (client.connect(myDomain, 443)) {
     Serial.println("Connection successful");
     
@@ -578,6 +616,7 @@ void saveCapturedImage() {
     Serial.println("Connected to " + String(myDomain) + " failed.");
   }
   client.stop();
+  digitalWrite(FLASH_LED, LOW);
 }
 
 
@@ -664,21 +703,19 @@ void capturePhotoSaveSpiffs( void ) {
   } while ( !ok );
 }
 
-<<<<<<< HEAD
-//////////////////////LOOP///////////////////////////////
-=======
+
 //////////////////////////////////////////////////////////////LOOP///////////////////////////////////////////////////////////////////////
-// inserir lógiica de watch dog
 // talvez as conexões devam ser fechadas liberando CPU https://github.com/espressif/esp-idf/issues/2101
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 void loop() {
   if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
-
+  
+  timerWrite(timer, 0);
   checkButton();
   
   if (takeNewPhoto) {
-    if (flashFlag == "True"){
+    if (flashFlag == "1"){
       digitalWrite(FLASH_LED, HIGH);
+      delay(10);
       capturePhotoSaveSpiffs();
       takeNewPhoto = false;
       digitalWrite(FLASH_LED, LOW); 
@@ -688,75 +725,54 @@ void loop() {
       takeNewPhoto = false;
    }
   }
-<<<<<<< HEAD
-=======
-  
-  if (photoFlag){ 
-    if (millis() - firstPhoto > adjustInterval){ 
-        Serial.println("First photo!");
-        digitalWrite(DEBUG_LED, LOW);
-        saveCapturedImage();
-        photoFlag = false;
-        lastPhoto = millis();  
-    }
-  }
-
-  else{
-    if((millis() - lastPhoto) > interval){
-      Serial.println("New photo captured!");
-      digitalWrite(DEBUG_LED, LOW);
-      saveCapturedImage();
-      lastPhoto = millis(); 
-    }
-  }
 
   if (millis() - blinkTime > 7000){
     digitalWrite(DEBUG_LED, LOW);
     blinkTime = millis();
     _blink = true;
   }
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
   
-  if (photoFlag){ 
-    if (millis() - firstPhoto > adjustInterval){ 
-        Serial.println("First photo!");
-        saveCapturedImage();
-        photoFlag = false;
-        lastPhoto = millis();  
-    }
+  else if (millis() - blinkTime > 5000 && _blink == true) {
+    digitalWrite(DEBUG_LED, HIGH);
+    _blink = false;
   }
-<<<<<<< HEAD
 
-  else{
-    if((millis() - lastPhoto) > interval){
-      Serial.println("New photo captured!");
-      saveCapturedImage();
-      lastPhoto = millis(); 
-    }
-  }
   
-  delay(1);
-=======
-  
-  delay(100);
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
-
-//// Uncomment and comment loop below to test camera
-//  unsigned long _time;
-//  if (photoFlag){
-//    _time = millis();
-//    saveCapturedImage();
-//    photoFlag = false;
-//  }
-//  else{
-//    if (millis() - _time > 3000){
-//      saveCapturedImage();
-//      _time = millis();
+// Uncomment and comment bellow to run photosCap
+//  if (photoFlag){ 
+//    if (millis() - firstPhoto > adjustInterval){ 
+//        Serial.println("First photo!");
+//        digitalWrite(DEBUG_LED, LOW);
+//        saveCapturedImage();
+//        photoFlag = false;
+//        lastPhoto = millis();  
 //    }
 //  }
-<<<<<<< HEAD
-//  delay(1);
-=======
+//
+//  else{
+//    if((millis() - lastPhoto) > interval){
+//      Serial.println("New photo captured!");
+//      digitalWrite(DEBUG_LED, LOW);
+//        lastPhoto = millis();      
+//        saveCapturedImage();
+//    }
+//  }
+//  
 //  delay(100);
->>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
+
+// Uncomment and comment above to test camera
+  if (photoFlag){
+    if (startTest) {
+      _time = millis();
+      saveCapturedImage();
+      photoFlag = false;         
+    }  
+  }
+  else if (!photoFlag){
+    if (millis() - _time > 60000){
+      _time = millis();
+      saveCapturedImage();
+    }
+  }
+  delay(100);
 }
