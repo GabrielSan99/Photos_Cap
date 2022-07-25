@@ -76,11 +76,19 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -3600*3;
 const int daylightOffset_sec = 0;
 
+<<<<<<< HEAD
 unsigned long interval, adjustInterval, lastPhoto, firstPhoto;
+=======
+unsigned long interval, adjustInterval, lastPhoto, firstPhoto, blinkTime;
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 
 
 bool photoFlag = true;
 bool takeNewPhoto = false;
+<<<<<<< HEAD
+=======
+bool _blink = true;
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 
 AsyncWebServer server(80);
 
@@ -242,9 +250,14 @@ void setup() {
     
     wm.setConfigPortalTimeout(120);     // auto close configportal after n seconds
     wm.startConfigPortal(ssid,pass);    // password protected ap
+<<<<<<< HEAD
     
     digitalWrite(AP_LED, LOW);
     configFlag = "0";
+=======
+    digitalWrite(DEBUG_LED, LOW);
+    configFlag = "2";
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
     configFlag.toCharArray(c_flag,4);
     writeFile(SPIFFS, "/config_flag.txt", c_flag); 
     
@@ -259,6 +272,20 @@ void setup() {
   
     if(!res) {
       Serial.println("Failed to connect or hit timeout");
+<<<<<<< HEAD
+=======
+      int aux = configFlag.toInt();
+      aux = aux + 1;
+      if (aux > 5){
+          configFlag = "1";
+          configFlag.toCharArray(c_flag,4);
+          writeFile(SPIFFS, "/config_flag.txt", c_flag); 
+      }
+      configFlag = String(aux);
+      configFlag.toCharArray(c_flag,4);
+      writeFile(SPIFFS, "/config_flag.txt", c_flag);
+      delay(100); 
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
       ESP.restart();
     } 
     else {
@@ -268,7 +295,11 @@ void setup() {
   }
   
   delay(2000);
+<<<<<<< HEAD
   digitalWrite(AP_LED, LOW);
+=======
+  digitalWrite(DEBUG_LED, LOW);
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 
   ///////////////////////////Setup time to photos capture///////////////////////////
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -368,7 +399,12 @@ void checkButton(){
       Serial.println("Start Config Page");
       configFlag = "1";
       configFlag.toCharArray(c_flag,4);
+<<<<<<< HEAD
       writeFile(SPIFFS, "/config_flag.txt", c_flag);       
+=======
+      writeFile(SPIFFS, "/config_flag.txt", c_flag);
+      delay(100);       
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
       ESP.restart();        
     }
   }
@@ -628,7 +664,13 @@ void capturePhotoSaveSpiffs( void ) {
   } while ( !ok );
 }
 
+<<<<<<< HEAD
 //////////////////////LOOP///////////////////////////////
+=======
+//////////////////////////////////////////////////////////////LOOP///////////////////////////////////////////////////////////////////////
+// inserir lógiica de watch dog
+// talvez as conexões devam ser fechadas liberando CPU https://github.com/espressif/esp-idf/issues/2101
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 void loop() {
   if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
 
@@ -646,6 +688,34 @@ void loop() {
       takeNewPhoto = false;
    }
   }
+<<<<<<< HEAD
+=======
+  
+  if (photoFlag){ 
+    if (millis() - firstPhoto > adjustInterval){ 
+        Serial.println("First photo!");
+        digitalWrite(DEBUG_LED, LOW);
+        saveCapturedImage();
+        photoFlag = false;
+        lastPhoto = millis();  
+    }
+  }
+
+  else{
+    if((millis() - lastPhoto) > interval){
+      Serial.println("New photo captured!");
+      digitalWrite(DEBUG_LED, LOW);
+      saveCapturedImage();
+      lastPhoto = millis(); 
+    }
+  }
+
+  if (millis() - blinkTime > 7000){
+    digitalWrite(DEBUG_LED, LOW);
+    blinkTime = millis();
+    _blink = true;
+  }
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
   
   if (photoFlag){ 
     if (millis() - firstPhoto > adjustInterval){ 
@@ -655,6 +725,7 @@ void loop() {
         lastPhoto = millis();  
     }
   }
+<<<<<<< HEAD
 
   else{
     if((millis() - lastPhoto) > interval){
@@ -665,6 +736,10 @@ void loop() {
   }
   
   delay(1);
+=======
+  
+  delay(100);
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 
 //// Uncomment and comment loop below to test camera
 //  unsigned long _time;
@@ -679,5 +754,9 @@ void loop() {
 //      _time = millis();
 //    }
 //  }
+<<<<<<< HEAD
 //  delay(1);
+=======
+//  delay(100);
+>>>>>>> 0882e939c2f7b60924e1db45f0cc02e8c138d66a
 }
