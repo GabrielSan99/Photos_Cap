@@ -41,7 +41,6 @@
 #define PCLK_GPIO_NUM     22
 
 bool wm_nonblocking = false; // change to true to use non blocking
-hw_timer_t *timer = NULL;
 
 struct tm timeinfo;
 camera_config_t config;
@@ -77,12 +76,12 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -3600*3;
 const int daylightOffset_sec = 0;
 
-unsigned long interval, adjustInterval, lastPhoto, firstPhoto, blinkTime, _time;
+unsigned long interval, adjustInterval, lastPhoto, firstPhoto, blinkTime;
+
 
 bool photoFlag = true;
 bool takeNewPhoto = false;
 bool _blink = true;
-bool startTest = false;
 
 AsyncWebServer server(80);
 
@@ -132,18 +131,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 </script>
 </html>)rawliteral";
 
-void IRAM_ATTR resetModule(){
-    ets_printf("(watchdog) reiniciar\n"); //imprime no log
-    ESP.restart(); //reinicia o chip
-}
-
 void setup() {
   
-  timer = timerBegin(0, 160, true);                   //160MHz de clock
-  timerAttachInterrupt(timer, &resetModule, true);    //função de callback do alarme
-  timerAlarmWrite(timer, 60000000, true);             //60 segundos de timer
-  timerAlarmEnable(timer);                            //habilita a interrupção
-   
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   pinMode(TRIGGER_PIN, INPUT);
   pinMode(DEBUG_LED, OUTPUT);
@@ -269,8 +258,6 @@ void setup() {
   wm.setMenu(menu);
   wm.setClass("invert");               // set dark theme
 
-  timerAlarmDisable(timer);
-  
   if (configFlag == "1"){
     Serial.println("Trying to up config page!!");
     digitalWrite(DEBUG_LED, HIGH);
@@ -278,7 +265,6 @@ void setup() {
     wm.setConfigPortalTimeout(120);     // auto close configportal after n seconds
     wm.startConfigPortal(ssid,pass);    // password protected ap
     digitalWrite(DEBUG_LED, LOW);
-    delay(100);
     configFlag = "2";
     configFlag.toCharArray(c_flag,4);
     writeFile(SPIFFS, "/config_flag.txt", c_flag);
@@ -301,16 +287,12 @@ void setup() {
           configFlag = "1";
           configFlag.toCharArray(c_flag,4);
           writeFile(SPIFFS, "/config_flag.txt", c_flag); 
-          delay(100); 
-          ESP.restart();
       }
-      else{
-        configFlag = String(aux);
-        configFlag.toCharArray(c_flag,4);
-        writeFile(SPIFFS, "/config_flag.txt", c_flag);
-        delay(100); 
-        ESP.restart();
-      }
+      configFlag = String(aux);
+      configFlag.toCharArray(c_flag,4);
+      writeFile(SPIFFS, "/config_flag.txt", c_flag);
+      delay(100); 
+      ESP.restart();
     } 
     else {
       //if you get here you have connected to the WiFi    
@@ -325,8 +307,6 @@ void setup() {
   
   delay(2000);
   digitalWrite(DEBUG_LED, LOW);
-  timerAlarmEnable(timer);
-  Serial.println("Start WatchDog");
 
   //////////////////////////////////////////////////Setup time to photos capture////////////////////////////////////////////////////////////
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -422,18 +402,14 @@ void setup() {
 void checkButton(){
   // check for button press
   if ( digitalRead(TRIGGER_PIN) == LOW ) {
-    delay(500);
+    delay(3000);
     if( digitalRead(TRIGGER_PIN) == LOW ){
-      startTest = true;
-      delay(4500);
-      if( digitalRead(TRIGGER_PIN) == LOW ){
-        Serial.println("Start Config Page");
-        configFlag = "1";
-        configFlag.toCharArray(c_flag,4);
-        writeFile(SPIFFS, "/config_flag.txt", c_flag);
-        delay(100);       
-        ESP.restart();        
-      }
+      Serial.println("Start Config Page");
+      configFlag = "1";
+      configFlag.toCharArray(c_flag,4);
+      writeFile(SPIFFS, "/config_flag.txt", c_flag);
+      delay(100);       
+      ESP.restart();        
     }
   }
 }
@@ -703,13 +679,12 @@ void capturePhotoSaveSpiffs( void ) {
   } while ( !ok );
 }
 
-
 //////////////////////////////////////////////////////////////LOOP///////////////////////////////////////////////////////////////////////
+// inserir lógiica de watch dog
 // talvez as conexões devam ser fechadas liberando CPU https://github.com/espressif/esp-idf/issues/2101
 void loop() {
   if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
-  
-  timerWrite(timer, 0);
+
   checkButton();
   
   if (takeNewPhoto) {
@@ -725,6 +700,25 @@ void loop() {
       takeNewPhoto = false;
    }
   }
+  
+  if (photoFlag){ 
+    if (millis() - firstPhoto > adjustInterval){ 
+        Serial.println("First photo!");
+        digitalWrite(DEBUG_LED, LOW);
+        saveCapturedImage();
+        photoFlag = false;
+        lastPhoto = millis();  
+    }
+  }
+
+  else{
+    if((millis() - lastPhoto) > interval){
+      Serial.println("New photo captured!");
+      digitalWrite(DEBUG_LED, LOW);
+      saveCapturedImage();
+      lastPhoto = millis(); 
+    }
+  }
 
   if (millis() - blinkTime > 7000){
     digitalWrite(DEBUG_LED, LOW);
@@ -736,43 +730,21 @@ void loop() {
     digitalWrite(DEBUG_LED, HIGH);
     _blink = false;
   }
-
   
-// Uncomment and comment bellow to run photosCap
-//  if (photoFlag){ 
-//    if (millis() - firstPhoto > adjustInterval){ 
-//        Serial.println("First photo!");
-//        digitalWrite(DEBUG_LED, LOW);
-//        saveCapturedImage();
-//        photoFlag = false;
-//        lastPhoto = millis();  
-//    }
-//  }
-//
-//  else{
-//    if((millis() - lastPhoto) > interval){
-//      Serial.println("New photo captured!");
-//      digitalWrite(DEBUG_LED, LOW);
-//        lastPhoto = millis();      
-//        saveCapturedImage();
-//    }
-//  }
-//  
-//  delay(100);
-
-// Uncomment and comment above to test camera
-  if (photoFlag){
-    if (startTest) {
-      _time = millis();
-      saveCapturedImage();
-      photoFlag = false;         
-    }  
-  }
-  else if (!photoFlag){
-    if (millis() - _time > 60000){
-      _time = millis();
-      saveCapturedImage();
-    }
-  }
   delay(100);
+
+//// Uncomment and comment loop below to test camera
+//  unsigned long _time;
+//  if (photoFlag){
+//    _time = millis();
+//    saveCapturedImage();
+//    photoFlag = false;
+//  }
+//  else{
+//    if (millis() - _time > 3000){
+//      saveCapturedImage();
+//      _time = millis();
+//    }
+//  }
+//  delay(100);
 }
