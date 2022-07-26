@@ -40,6 +40,9 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+//change the mode according to your wish
+int MODE = 1;    // 0 == final product;  1 == get dataset;    2 == test device
+
 bool wm_nonblocking = false; // change to true to use non blocking
 hw_timer_t *timer = NULL;
 
@@ -137,11 +140,13 @@ void IRAM_ATTR resetModule(){
     ESP.restart(); //reinicia o chip
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////SETUP//////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
-  s
   timer = timerBegin(0, 160, true);                   //160MHz de clock
   timerAttachInterrupt(timer, &resetModule, true);    //função de callback do alarme
-  timerAlarmWrite(timer, 120000000, true);             //120 segundos de timer
+  timerAlarmWrite(timer, 120000000, true);            //120 segundos de timer
   timerAlarmEnable(timer);                            //habilita a interrupção
    
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -703,9 +708,9 @@ void capturePhotoSaveSpiffs( void ) {
   } while ( !ok );
 }
 
-
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////LOOP///////////////////////////////////////////////////////////////////////
-// talvez as conexões devam ser fechadas liberando CPU https://github.com/espressif/esp-idf/issues/2101
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop() {
   if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
   
@@ -737,42 +742,61 @@ void loop() {
     _blink = false;
   }
 
-  
-// Uncomment and comment bellow to run photosCap
-//  if (photoFlag){ 
-//    if (millis() - firstPhoto > adjustInterval){ 
-//        Serial.println("First photo!");
-//        digitalWrite(DEBUG_LED, LOW);
-//        saveCapturedImage();
-//        photoFlag = false;
-//        lastPhoto = millis();  
-//    }
-//  }
-//
-//  else{
-//    if((millis() - lastPhoto) > interval){
-//      Serial.println("New photo captured!");
-//      digitalWrite(DEBUG_LED, LOW);
-//        lastPhoto = millis();      
-//        saveCapturedImage();
-//    }
-//  }
-//  
-//  delay(100);
-
-// Uncomment and comment above to test camera
-  if (photoFlag){
-    if (startTest) {
-      _time = millis();
-      saveCapturedImage();
-      photoFlag = false;         
-    }  
-  }
-  else if (!photoFlag){
-    if (millis() - _time > 60000){
-      _time = millis();
-      saveCapturedImage();
+  // final product
+  if (MODE == 0){
+    if (photoFlag){ 
+      if (millis() - firstPhoto > adjustInterval){ 
+          Serial.println("First photo!");
+          digitalWrite(DEBUG_LED, LOW);
+          saveCapturedImage();
+          photoFlag = false;
+          lastPhoto = millis();  
+      }
     }
-  }
+  
+    else{
+      if((millis() - lastPhoto) > interval){
+        Serial.println("New photo captured!");
+        digitalWrite(DEBUG_LED, LOW);
+          lastPhoto = millis();      
+          saveCapturedImage();
+      }
+    }
   delay(100);
+  }
+
+  //get dataset mode
+  else if (MODE == 1){
+    if (photoFlag){
+      if (startTest) {
+        _time = millis();
+        saveCapturedImage();
+        photoFlag = false;         
+      }  
+    }
+    else {
+      if (millis() - _time > 60000){
+        _time = millis();
+        saveCapturedImage();
+      }
+    }
+    delay(100);
+  }
+
+  //test device mode
+  else if (MODE == 2){
+    if (photoFlag){
+        _time = millis();
+        saveCapturedImage();
+        photoFlag = false;         
+      }  
+      
+    else {
+      if (millis() - _time > 20000){
+        _time = millis();
+        saveCapturedImage();
+      }
+    }
+    delay(100);
+  } 
 }
